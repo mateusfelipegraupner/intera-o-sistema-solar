@@ -1,288 +1,320 @@
-import { criarAstro } from "../dados/dados-celestes.js";
-import { RenderizadorAscii, cameraOrbital, interpolar, limitar, ruido, suavizar } from "../motor/renderizador-ascii.js";
+import { CORPOS_CELESTES, calcularSistema, criarAstro } from "../dados/dados-celestes.js";
+import { FASES, longitudesPlanetarias } from "../dados/fases-cosmicas.js";
+import { RenderizadorAscii, cameraOrbital, escalar, interpolar, limitar, ruido, suavizar } from "../motor/renderizador-ascii.js";
 
-const ETAPAS = [
-  [0, "Plataforma e ignição"], [3, "Ascensão e inclinação orbital"], [7, "Separação de estágios"],
-  [10, "Órbita da Terra e da Lua"], [16, "Travessia pelo Sistema Solar"], [23, "Espiral da Via Láctea"]
-];
 const VOLTA = Math.PI * 2;
-const PLUMA = ["#80251c", "#e85724", "#eb8928", "#ffc83a", "#f2eee4"];
-const METAL = ["#58656e", "#909a9b", "#cbd1c8", "#fff4d7"];
-const PINTURA = ["#773822", "#a8462b", "#d36644", "#f78b56"];
-const FOGUETE = [
-  [-3.7, -3.22, .77, .75, "base"], [-3.22, -.45, .75, .75, "principal"],
-  [-.45, .22, .75, .71, "faixa"], [.22, 1.6, .71, .71, "principal"],
-  [1.6, 2.12, .71, .49, "faixa"], [2.12, 2.93, .49, .49, "principal"],
-  [2.93, 3.42, .49, .22, "principal"], [3.42, 3.76, .22, .09, "faixa"], [3.76, 4.37, .065, .028, "torre"]
-];
-const GALAXIA = ["#344d85", "#4b82b5", "#8fd3ff", "#a5bbdd", "#eb8928", "#f2dfb4"];
+const TOTAL = FASES.length * 1000;
+const NUMERO = new Intl.NumberFormat("pt-BR");
+const DATA = new Intl.DateTimeFormat("pt-BR", { day: "numeric", month: "short", year: "numeric" });
+const POEIRA = ["#a16037", "#eb8928", "#d5a45e", "#ffc83a", "#f2eee4"];
+const NEBULOSA = ["#51438a", "#7361ba", "#4ea8ff", "#8fd3ff", "#87b8ad", "#eabc67"];
+const QUENTE = [255, 105, 55];
+const VERMELHO = [255, 108, 51];
+const SUPERFICIE_GIGANTE = [[177, 56, 32], VERMELHO, [255, 176, 80], [255, 218, 148]];
+const PLUMA_COR = ["#b54f2f", "#eb7637", "#ffc07f"];
+const BRANCO = [207, 242, 255];
+const CIFRA = "*/!+%0#?:><[]";
+const LONGITUDES_ATUAIS = longitudesPlanetarias();
 
-function transformar(x, y, z, origem, angulo) {
-  const c = Math.cos(angulo);
-  const s = Math.sin(angulo);
-  return [origem[0] + x * c + y * s, origem[1] + y * c - x * s, origem[2] + z];
-}
-
-function desenharFoguete(motor, origem, angulo, faixa, amostra = 1) {
-  const pontos = [];
-  amostra /= Math.sqrt(motor.densidade);
-  for (const [baixo, alto, raioBaixo, raioAlto, pintura] of faixa) {
-    const niveis = Math.max(2, Math.ceil((alto - baixo) * 11 * amostra));
-    for (let nivel = 0; nivel < niveis; nivel++) {
-      const t = nivel / niveis;
-      const altura = interpolar(baixo, alto, t);
-      const raio = interpolar(raioBaixo, raioAlto, t);
-      const colunas = Math.max(7, Math.round(raio * 43 * amostra));
-      for (let i = 0; i < colunas; i++) {
-        const anguloFace = i * VOLTA / colunas;
-        const seno = Math.sin(anguloFace);
-        const cosseno = Math.cos(anguloFace);
-        const p = motor.projetar(transformar(cosseno * raio, altura, seno * raio, origem, angulo));
-        if (!p) continue;
-        const luz = limitar(.56 + .30 * seno + .27 * cosseno);
-        const faixaEscura = pintura === "faixa" || (pintura === "base" && i % 5 < 3) ||
-          (pintura === "principal" && baixo < 0 && (t < .10 || (t > .78 && i % 7 < 2)));
-        const pintado = pintura === "principal" && baixo > 0 && t > .54 && t < .68;
-        const cor = faixaEscura ? (luz > .62 ? "#8094a9" : "#3e4f63") : (pintado ? PINTURA : METAL)[Math.floor(luz * 3.99)];
-        const glifo = ["0", "H", "=", "+"][Math.floor(ruido(nivel, i + 30) * 4)];
-        const letra = faixaEscura ? (i % 3 ? ":" : "=") : (luz > .42 ? glifo : "+");
-        pontos.push({ ...p, letra, cor });
-      }
-    }
-  }
-  pontos.sort((a, b) => b.z - a.z);
-  for (const p of pontos) {
-    motor.caractere(p.x, p.y, p.letra, p.cor, luzDoFoguete(p.z), p.cor === METAL[3] && p.letra === "0");
-  }
-  for (const altura of [-2.5, -2, .95, 1.2, 2.6]) {
-    if (faixa.some(([baixo, alto]) => altura >= baixo && altura <= alto)) {
-      const raio = altura > 2 ? .50 : .72;
-      motor.ponto(transformar(.16, altura, raio, origem, angulo), "+", "#dd6b3d", .97);
-    }
-  }
-}
-
-function luzDoFoguete(profundidade) {
-  return limitar(18 / profundidade, .33, 1);
-}
-
-function exaustao(motor, origem, angulo, base, comprimento, tempo, potencia) {
-  const bocal = motor.projetar(transformar(0, base - .25, 0, origem, angulo));
-  if (bocal) motor.disco(bocal, Math.max(motor.altura * .08, 28), "#eb8928", .24 * potencia);
-  const quantidade = Math.round(1050 * potencia / motor.densidade);
+function discoEmEspiral(motor, tempo, quantidade, raio, altura, opacidade) {
   for (let i = 0; i < quantidade; i++) {
-    const vida = (ruido(i, 1) + tempo * (.51 + ruido(i, 2) * .22)) % 1;
-    const abertura = .26 + vida * 1.04;
-    const a = ruido(i, 4) * VOLTA + 3 * vida;
-    const amplitude = (ruido(i, 5) ** .8) * abertura;
-    const x = Math.cos(a) * amplitude + Math.sin(vida * 10 - tempo * 6) * vida * .27;
-    const z = Math.sin(a) * amplitude;
-    const y = base - vida * comprimento * (.66 + .34 * ruido(i, 6));
-    const cor = PLUMA[Math.min(4, Math.floor((1 - vida) * 5))];
-    motor.ponto(transformar(x, y, z, origem, angulo), vida < .24 ? (i % 2 ? "#" : "@") : vida < .58 ? "*" : ".", cor, (1 - vida) ** .73, i % 4 === 0);
+    const r = ruido(i, 41) ** 1.16 * raio;
+    const a = i % 4 * VOLTA / 4 + r * .17 + ruido(i, 42) * 1.65 + tempo * (.09 + .8 / (r + 4));
+    const y = (ruido(i, 43) - .5) * altura * (.2 + .8 * r / raio);
+    const letra = i % 13 === 0 ? "+" : i % 5 === 0 ? ":" : ".";
+    const cor = POEIRA[(i + (r < raio * .2 ? 2 : 0)) % POEIRA.length];
+    motor.ponto([r * Math.cos(a), y, r * Math.sin(a)], letra, cor, opacidade * (.35 + ruido(i, 40) * .65), i % 13 === 0);
   }
 }
 
-function plataforma(motor, subida, tempo) {
-  const solo = -4.12 - subida;
-  for (let i = 0; i < 44; i++) {
-    const z = i * .67 - 21;
-    motor.linha([-19, solo, z], [15, solo, z], "#c87740", .32, "·", 14);
-  }
-  for (let x = -18; x <= 14; x += 1.5) motor.linha([x, solo, -22], [x, solo, 5], "#c87740", .27, "·", 13);
+function clarao(motor, progresso, escala) {
+  const pulso = Math.max(0, 1 - progresso * 3.8) ** 1.35;
+  if (pulso <= .008) return;
+  const centro = motor.projetar([0, 0, 0]);
+  if (!centro) return;
 
-  const esquerda = -3.05;
-  const direita = -2.0;
-  for (const x of [esquerda, direita]) {
-    motor.linha([x, solo, .2], [x, solo + 8.45, .2], "#cf915e", .76, "¦", 5);
-    motor.linha([x, solo, -1.16], [x, solo + 8.45, -1.16], "#a96e4c", .63, "|", 6);
-  }
-  for (let i = 0; i < 10; i++) {
-    const y = solo + i * .82;
-    motor.linha([esquerda, y, .2], [direita, y, .2], "#d19261", .70, "=", 5);
-    motor.linha([esquerda, y, .19], [direita, y + .81, .19], "#8c5945", .86, "/", 5);
-    if (i % 3 === 1) motor.linha([direita, y, .16], [-.62, y + .11, .16], "#c18350", .72, "=", 5);
-  }
-  motor.ponto([-2.56, solo + 8.55, .15], "*", "#ff6b4a", .65 + .35 * Math.sin(tempo * 5), true);
-
-  for (let i = 0; i < 16; i++) {
-    const x = (i - 7.5) * 1.65;
-    const z = -5 - ruido(i, 7) * 8;
-    const alto = .19 + ruido(i, 8) * .79;
-    for (let faixa = 0; faixa < 7; faixa++) {
-      const y = solo + alto * faixa / 7;
-      const largura = .54 * Math.sqrt(1 - (faixa / 7) ** 4);
-      motor.linha([x - largura, y, z], [x + largura, y, z], faixa % 3 ? "#995430" : "#df8c48", .55, "=", 7);
-    }
-    motor.ponto([x, solo + .33, z + .08], "+", "#ffc073", .69);
-  }
-
-  for (let i = 0; i < 530; i++) {
-    const a = ruido(i, 18) * VOLTA;
-    const distancia = ((tempo * .48 + ruido(i, 19)) % 1) ** .64 * (2.0 + ruido(i, 21) * 5);
-    const x = Math.cos(a) * distancia;
-    const z = Math.sin(a) * distancia;
-    motor.ponto([x, solo + ruido(i, 20) * .5, z], i % 3 ? "." : ":", PLUMA[i % 4], .65 * (1 - distancia / 7), i % 9 === 0);
-  }
-}
-
-function horizonte(motor, intensidade, subida = 0) {
-  const ctx = motor.ctx;
-  const centro = { x: motor.largura * .83, y: motor.altura * (1.39 + subida) };
-  const raio = motor.altura * .78;
-  const gradiente = ctx.createRadialGradient(centro.x, centro.y, raio * .55, centro.x, centro.y, raio * 1.2);
-  gradiente.addColorStop(0, "#030611");
-  gradiente.addColorStop(.59, "#071226");
-  gradiente.addColorStop(.70, "#143b55");
-  gradiente.addColorStop(.73, "#346786");
-  gradiente.addColorStop(.83, "#0b203a");
-  gradiente.addColorStop(1, "transparent");
-  ctx.globalAlpha = intensidade * .85;
-  ctx.fillStyle = gradiente;
-  ctx.fillRect(0, 0, motor.largura, motor.altura);
-  ctx.globalAlpha = 1;
-
-  for (let anel = 0; anel < 6; anel++) {
-    const r = raio * (.99 + anel * .10);
-    for (let i = 0; i < 220; i++) {
-      const a = Math.PI * (1.01 + i / 214);
-      const cor = anel > 1 ? "#875632" : "#5d9cbb";
-      motor.caractere(centro.x + r * Math.cos(a), centro.y + r * Math.sin(a), i % 19 ? "·" : "+", cor, intensidade * (anel > 1 ? .43 : .80));
+  const raioBase = motor.altura * escala;
+  motor.disco(centro, raioBase * .34, "#eb8928", pulso * .25);
+  motor.disco(centro, raioBase * .15, "#fff1cc", pulso * .76);
+  for (let i = 0; i < 38; i++) {
+    const a = (i + ruido(i, 59) * .65) * VOLTA / 38;
+    const raio = raioBase * (.23 + ruido(i, 60) * .59);
+    const cor = i % 5 ? "#ffdfa0" : "#fff8e4";
+    const glifo = Math.abs(Math.sin(a)) < .27 ? "-" : Math.abs(Math.cos(a)) < .27 ? "|" : Math.sin(2 * a) > 0 ? "\\" : "/";
+    for (let r = motor.passoY; r < raio; r += motor.passoY * .7) {
+      const x = centro.x + r * Math.cos(a);
+      const y = centro.y + r * Math.sin(a);
+      const luz = pulso * (1 - r / raio) ** .77;
+      motor.caractere(x, y, glifo, cor, luz, i % 3 === 0);
+      if (i % 3 === 0) motor.caractere(x + motor.passoX, y, "·", "#ffc27a", luz * .52);
     }
   }
 }
 
-function lancamento(motor, tempo, centro) {
-  const subida = suavizar((tempo - 2.7) / 4.3);
-  const separar = suavizar((tempo - 7) / 3);
-  const inclinacao = .78 * suavizar((tempo - 4.5) / 3);
-  const altura = 2.45 * subida + .85 * separar;
-  const origem = [.42 * subida + .65 * separar, altura, 0];
-  const afastamento = 13.85 + 5.35 * suavizar((tempo - 1.1) / 5.9) + 4 * separar;
-  const camera = cameraOrbital([.5 * subida, altura * .62, 0], afastamento, .27 - .47 * subida, .02 + .23 * subida, .93);
-  if (!motor.iniciar(camera, tempo, centro)) return;
-  horizonte(motor, interpolar(.48, 1, subida), .055 * subida);
-  motor.estrelasAoFundo(.82, subida * .05);
-  if (tempo < 6.8) plataforma(motor, 12 * subida, tempo);
-
-  if (tempo < 7) {
-    exaustao(motor, origem, inclinacao, -3.5, 1.65 + 5.6 * subida, tempo, .56 + .36 * subida);
-    desenharFoguete(motor, origem, inclinacao, FOGUETE);
-  } else {
-    const primeiroEstagio = [origem[0] - 3.7 * separar, altura - 5.1 * separar, -2 * separar];
-    exaustao(motor, origem, inclinacao, -.64, 2.5 + separar * 2.4, tempo, .78);
-    desenharFoguete(motor, primeiroEstagio, inclinacao - .47 * separar, FOGUETE.slice(0, 2), .76);
-    desenharFoguete(motor, origem, inclinacao, FOGUETE.slice(2));
+function plumas(motor, tempo, raio, progresso) {
+  const intensidade = suavizar(progresso * 1.5);
+  const quantidade = Math.round(300 / motor.densidade);
+  for (let braco = 0; braco < 5; braco++) {
+    const direcao = .54 + braco * VOLTA / 5;
+    for (let i = 0; i < quantidade; i++) {
+      const t = (ruido(i, braco + 65) + tempo * .12) % 1;
+      const abertura = (ruido(i, braco + 70) - .5) * (.59 - t * .29);
+      const a = direcao + Math.sin(t * 4 - tempo * .8) * .13 + abertura;
+      const x = Math.cos(a) * raio * (.89 + t * (1.08 + progresso * .61));
+      const y = Math.sin(a) * raio * (.89 + t * (.88 + progresso * .49));
+      const luminosidade = intensidade * .81 * (1 - t) ** 1.5;
+      const cor = PLUMA_COR[t < .25 ? 2 : t < .59 ? 1 : 0];
+      motor.ponto([x, y, (ruido(i, 76) - .5) * 9], i % 5 ? ":" : "#", cor, luminosidade, i % 5 === 0);
+    }
   }
 }
 
-function orbitaTerrestre(motor, tempo, centro) {
-  const fase = suavizar((tempo - 10) / 6);
-  const camera = cameraOrbital([0, 0, 0], interpolar(10.8, 23, fase), -.27 + fase * .61, .13 + fase * .12, 1);
-  if (!motor.iniciar(camera, tempo, centro)) return;
-  motor.estrelasAoFundo(.92, fase * .1);
-  motor.orbita([0, 0, 0], 6.85, "#8fd3ff", .45, .22);
-  motor.orbita([0, 0, 0], 9.35, "#eb8928", .22, -.16);
-  motor.astro(criarAstro("terra", [.25, -.4, 0], { raio: 3.45, rotacao: tempo * .26, luz: [-.87, .39, -.27], halo: "#4ea8ff" }));
-  motor.astro(criarAstro("lua", [-4.1 + fase, 2.65 + fase * .2, .9], { raio: .84, luz: [-.8, .56, .28], rotacao: .21 * fase }));
-}
-
-function travessia(motor, tempo, centro) {
-  const fase = suavizar((tempo - 16) / 7);
-  const camera = cameraOrbital([.5 - fase * 5, 0, 0], 29 + fase * 17, -.27 + fase * .94, .35, .84);
-  if (!motor.iniciar(camera, tempo, centro)) return;
-  motor.estrelasAoFundo(1, (tempo - 16) * .021);
-  for (const raio of [7, 10, 13, 16, 20, 26, 33]) motor.orbita([-5, 0, 0], raio, "#c8935b", .38);
-  motor.asteroides(10.45, 310, .8);
-  const corpos = [
-    criarAstro("sol", [-5, 0, 0], { raio: 4.2 }),
-    criarAstro("jupiter", [4, 1.15, 4], { raio: 2.3, rotacao: tempo * .4, luz: [-.7, .35, .70] }),
-    criarAstro("saturno", [9, -.39, -5], { raio: 1.9, rotacao: tempo * .35, luz: [-.7, .35, .7] }),
-    criarAstro("urano", [13, 2.3, -9], { raio: 1.07, luz: [-.6, .35, .68] }),
-    criarAstro("netuno", [-11, -1.5, -10], { raio: 1.16, luz: [-.57, .35, .65] })
-  ];
-  for (const astro of corpos) motor.astro(astro);
-}
-
-function viaLactea(motor, tempo, centro) {
-  const fase = suavizar((tempo - 23.75) / 6.25);
-  const entrada = suavizar((tempo - 23.75) / 2.3);
-  const camera = cameraOrbital([0, 0, 0], 18 + fase * 13, -.49 + fase * .7, .20 + fase * .56, .94);
-  if (!motor.iniciar(camera, tempo, centro)) return;
-  motor.estrelasAoFundo(1, (tempo - 23) * .033);
-  for (let i = 0; i < 165 && entrada < 1; i++) {
-    const angulo = ruido(i, 89) * VOLTA;
-    const distancia = motor.altura * (.11 + ruido(i, 91) * .64);
-    const passagem = (ruido(i, 93) + (tempo - 23) * .55) % 1;
-    const x = motor.cx + Math.cos(angulo) * distancia * passagem ** 1.6;
-    const y = motor.cy + Math.sin(angulo) * distancia * passagem ** 1.6;
-    motor.caractere(x, y, i % 6 ? "·" : "+", GALAXIA[i % 4], (1 - entrada) * passagem);
-  }
-
-  motor.disco({ x: motor.cx, y: motor.cy }, motor.altura * .36, "#204071", .23 * entrada);
-  const n = Math.round(5200 / motor.densidade);
+function nebulosaBipolar(motor, tempo, expansao, opacidade) {
+  const n = Math.round(3100 / motor.densidade);
   for (let i = 0; i < n; i++) {
-    const braco = (i % 4) * VOLTA / 4;
-    const raio = 15.3 * ruido(i, 30) ** 1.14;
-    const espessura = (.69 + 2.7 / (1 + raio)) * (ruido(i, 31) - .5);
-    const a = braco + raio * .31 + espessura + tempo * .105;
-    const altura = (ruido(i, 32) - .5) * (1.45 / (1 + raio * .17));
-    const cor = raio < 2.7 ? GALAXIA[4 + i % 2] : GALAXIA[i % 4];
-    const letra = raio < 2.7 ? (i % 6 ? "+" : "#") : (i % 8 ? ":" : "+");
-    motor.ponto([raio * Math.cos(a), altura, raio * Math.sin(a)], letra, cor, entrada * (.35 + ruido(i, 34) * .6), i % 13 === 0 || raio < 1.34);
+    const lado = i % 2 ? 1 : -1;
+    const t = ruido(i, 81);
+    const a = ruido(i, 82) * VOLTA + tempo * .16;
+    const r = (3.1 + Math.sin(t * Math.PI) * 14.5) * expansao * (.60 + ruido(i, 83) * .40);
+    const y = lado * (t * 39 + ruido(i, 84) * 3) * expansao;
+    const cor = NEBULOSA[Math.floor(ruido(i, 85) * NEBULOSA.length)];
+    const letra = i % 11 === 0 ? "0" : i % 5 === 0 ? "+" : i % 3 === 0 ? ":" : ".";
+    motor.ponto([r * Math.cos(a), y, r * Math.sin(a)], letra, cor, opacidade * (.33 + .65 * (1 - t)), i % 10 === 0);
+  }
+
+  const quantidade = Math.round(560 / motor.densidade);
+  for (let i = 0; i < quantidade; i++) {
+    const a = ruido(i, 86) * VOLTA + tempo * .07;
+    const raio = (6.2 + ruido(i, 87) * 3.2) * expansao;
+    const x = raio * Math.cos(a);
+    const z = raio * Math.sin(a);
+    const altura = .29 * z - .18 * x + (ruido(i, 88) - .5) * 3;
+    const cor = i % 7 === 0 ? "#f2eee4" : i % 3 ? "#dba952" : "#8fd3ff";
+    motor.ponto([x, altura, z], i % 8 ? "." : "+", cor, opacidade * (.43 + ruido(i, 89) * .51), i % 8 === 0);
   }
 }
 
-export function iniciarViagem(registrar) {
-  const canvas = document.querySelector("#viagem");
-  const etapa = document.querySelector("#etapa-viagem");
-  const relogio = document.querySelector("#tempo-viagem");
-  const progresso = document.querySelector("#progresso-viagem");
-  const botao = document.querySelector("#pausar-viagem");
-  const motor = new RenderizadorAscii(canvas, 8.7);
-  let pausado = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  let tempo = pausado ? 11.2 : 0;
-  let ultimo = -1;
-  let larguraAnterior;
-  let alturaAnterior;
+function cometa(motor, tempo) {
+  for (let i = 0; i < 27; i++) {
+    const a = tempo * .34 - i * .016 + 1.8;
+    motor.ponto([35 * Math.cos(a), 4 + Math.sin(a * 2) * 6, 31 * Math.sin(a)], i < 2 ? "+" : ".", "#8fd3ff", .84 * (1 - i / 27), i === 0);
+  }
+}
+
+function planetasDaFase(motor, fase, progresso, tempo, opacidade) {
+  const astros = calcularSistema(tempo * .55, false).slice(1);
+  const gigantes = fase >= 5;
+  const entrada = fase === 2 ? suavizar(progresso * 1.25 + .09) : 1;
+  const raioSolar = 3.7 + suavizar(progresso) * 21.9;
+  const visiveis = [];
+  for (const [i, astro] of astros.entries()) {
+    if (gigantes && i < 4 && (fase > 5 || raioSolar > astro.orbita + astro.raio)) continue;
+    const angulo = LONGITUDES_ATUAIS[astro.id] + progresso * .12 / Math.sqrt(astro.periodo);
+    const posicao = fase === 3
+      ? [astro.orbita * Math.cos(angulo), 0, astro.orbita * Math.sin(angulo)]
+      : astro.posicao;
+    const afastamento = i >= 4 && gigantes ? (fase === 5 ? 1 + progresso * .61 : 1.61) : 1;
+    const corOrbita = gigantes ? "#8293a3" : "#a9a79e";
+    motor.orbita([0, 0, 0], astro.orbita * afastamento, corOrbita, opacidade * entrada * (i < 4 ? .34 : .48));
+    visiveis.push({
+      ...astro, posicao: escalar(posicao, afastamento), raio: astro.raio * (1.12 + i * .02) * entrada
+    });
+  }
+  if (!gigantes) {
+    motor.asteroides(17, 320, .72 * entrada, tempo);
+    if (fase === 2) cometa(motor, tempo);
+  }
+  return visiveis;
+}
+
+function rotular(motor, astros) {
+  const caixas = [];
+  const ctx = motor.ctx;
+  ctx.save();
+  ctx.font = '9px "Space Mono", monospace';
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#a2b8cb";
+  const sol = motor.projetados.get("sol");
+  for (const { id } of astros) {
+    const p = motor.projetados.get(id);
+    if (!p) continue;
+    const nome = CORPOS_CELESTES[id].nome.toLocaleUpperCase("pt-BR");
+    const largura = ctx.measureText(nome).width;
+    const y = p.y + 3;
+    if (y < 100 || y > motor.altura - 93) continue;
+    const x = [p.x + p.raio + 6, p.x - p.raio - largura - 6].find(inicio => {
+      const fim = inicio + largura;
+      if (inicio < 8 || fim > motor.largura - 8) return false;
+      if (sol && Math.hypot(sol.x - limitar(sol.x, inicio, fim), sol.y - y) < sol.raio + 7) return false;
+      return !caixas.some(c => Math.abs(c.y - y) < 12 && inicio < c.x + c.largura + 5 && fim + 5 > c.x);
+    });
+    if (x === undefined) continue;
+    ctx.fillText(nome, x, y);
+    caixas.push({ x, y, largura });
+  }
+  ctx.restore();
+}
+
+function desenharCena(motor, fase, progresso, tempo) {
+  const largura = motor.canvas.clientWidth;
+  const lente = largura < 640 ? .86 : 1.04;
+  const expande = fase === 5 ? suavizar(progresso) : Number(fase > 5);
+  const distancia = interpolar(101, 143, expande);
+  const camera = cameraOrbital([0, 0, 0], distancia, .26 + .11 * Math.sin(tempo * .19), .49, lente);
+  if (!motor.iniciar(camera, tempo, [.5, .52])) return;
+  motor.estrelasAoFundo(fase === 8 ? 1 - progresso * .45 : .88);
+  const raios = [1.25 + progresso * 1.5, 2.9 + progresso * .45, 3.35, 3.35, 3.35,
+    3.7 + expande * 21.9, 2.3 - progresso * 1.25, .95, .91];
+  const sol = criarAstro("sol", [0, 0, 0], { raio: raios[fase], rotacao: tempo * .31 });
+  const opacidade = fase === 8 ? 1 - suavizar(progresso) : 1;
+  const planetas = fase < 2 ? [] : planetasDaFase(motor, fase, progresso, tempo, opacidade);
+
+  switch (fase) {
+    case 0:
+      motor.disco({ x: motor.cx, y: motor.cy }, motor.altura * .43, "#794f27", .18);
+      discoEmEspiral(motor, tempo, Math.round(2840 / motor.densidade), 55 - progresso * 23, 28 - progresso * 23, .94);
+      break;
+    case 1:
+      discoEmEspiral(motor, tempo, 1400, 29 + progresso * 13, 3.0, .84);
+      for (const raio of [7, 12, 18, 26, 36]) motor.orbita([0, 0, 0], raio, "#ffc83a", .31 + .24 * progresso);
+      clarao(motor, progresso, .84);
+      break;
+    case 2:
+      discoEmEspiral(motor, tempo, 1000, 44, 2.1, .68 * (1 - progresso));
+      break;
+    case 4:
+      sol.cor = QUENTE;
+      sol.raio += progresso * .56 + Math.sin(tempo * (2 + progresso * 2)) * .24 * progresso;
+      break;
+    case 5:
+      sol.cor = VERMELHO;
+      sol.paletaEmissiva = SUPERFICIE_GIGANTE;
+      plumas(motor, tempo, sol.raio, progresso);
+      break;
+    case 6:
+      sol.cor = BRANCO;
+      nebulosaBipolar(motor, tempo, .40 + progresso * .79, suavizar(progresso * 3.7) * (.99 - progresso * .33));
+      clarao(motor, progresso, 1.68);
+      break;
+    case 7:
+      sol.cor = BRANCO;
+      nebulosaBipolar(motor, tempo, 1.19 + progresso * .38, .66 * (1 - progresso * .74));
+      motor.orbita([0, 0, 0], 13.7, "#8fd3ff", .38);
+      break;
+    case 8:
+      sol.cor = BRANCO;
+      nebulosaBipolar(motor, tempo, 1.57 + progresso * 1.5, .17 * opacidade);
+      discoEmEspiral(motor, tempo, 1500, 27 + progresso * 90, 8 + progresso * 18, .52 * opacidade);
+      sol.raio *= .25 + .75 * opacidade;
+      break;
+  }
+
+  for (const planeta of planetas) motor.astro(planeta);
+  if (opacidade > .02) motor.astro(sol);
+  motor.finalizar(opacidade);
+  if (fase < 8) rotular(motor, planetas);
+}
+
+function marcarTempo(fase, progresso) {
+  if (fase === 3) {
+    const legenda = DATA.formatToParts(new Date()).filter(parte => parte.type !== "literal")
+      .map(parte => parte.value.replace(".", "")).join(" ");
+    return ["hoje", legenda];
+  }
+  const atual = FASES[fase];
+  const t = fase === 2 ? 1 - (1 - progresso) ** 5.4 : progresso;
+  const anos = Math.round(interpolar(atual.inicio, atual.fim, t));
+  return [NUMERO.format(Math.abs(anos)), fase < 3 ? "anos atrás" : "anos no futuro"];
+}
+
+export function iniciarLinhaDoTempo(registrar) {
+  const canvas = document.querySelector("#cena-temporal");
+  const motor = new RenderizadorAscii(canvas, 8);
+  const romano = document.querySelector("#numero-fase");
+  const titulo = document.querySelector("#nome-fase");
+  const descricao = document.querySelector("#descricao-fase");
+  const anuncio = document.querySelector("#anuncio-fase");
+  const numero = document.querySelector("#contador-cosmico");
+  const unidade = document.querySelector("#unidade-cosmica");
+  const barra = document.querySelector("#barra-temporal");
+  const reproducao = document.querySelector("#reproduzir-tempo");
+  const reduzido = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let reproduzindo = !reduzido;
+  let cursor = 0;
+  let fase = -1;
+  let decodificar = 1;
+  let tempoVisual = 0;
+  let anterior = -1;
+  let larguraAnterior = 0;
+  let alturaAnterior = 0;
 
   function atualizarBotao() {
-    botao.textContent = pausado ? ">" : "||";
-    botao.setAttribute("aria-label", pausado ? "Reproduzir viagem" : "Pausar viagem");
+    const icone = document.createElement("span");
+    icone.setAttribute("aria-hidden", "true");
+    icone.textContent = reproduzindo ? "||" : ">";
+    reproducao.replaceChildren(icone, reproduzindo ? " Pausar" : " Reproduzir");
   }
-  botao.disabled = false;
-  atualizarBotao();
-  botao.addEventListener("click", () => {
-    pausado = !pausado;
+
+  function selecionar(valor) {
+    reproduzindo = false;
+    cursor = limitar(valor, 0, TOTAL);
+    atualizarBotao();
+  }
+
+  function passo(direcao) {
+    const atual = Math.min(FASES.length - 1, Math.floor(cursor / 1000));
+    selecionar(((atual + direcao + FASES.length) % FASES.length) * 1000);
+  }
+
+  for (const marco of document.querySelectorAll("#marcos-temporais button")) {
+    const valor = Number(marco.dataset.tempo);
+    marco.style.left = valor / TOTAL * 100 + "%";
+    marco.addEventListener("click", () => selecionar(valor));
+  }
+  barra.addEventListener("input", () => selecionar(Number(barra.value)));
+  document.querySelector("#fase-anterior").addEventListener("click", () => passo(-1));
+  document.querySelector("#proxima-fase").addEventListener("click", () => passo(1));
+  reproducao.addEventListener("click", () => {
+    reproduzindo = !reproduzindo;
+    if (reproduzindo && cursor >= TOTAL) cursor = 0;
     atualizarBotao();
   });
+  atualizarBotao();
 
   registrar(canvas, dt => {
-    if (pausado && ultimo === tempo && larguraAnterior === canvas.clientWidth && alturaAnterior === canvas.clientHeight) return;
-    if (!pausado) tempo = (tempo + dt) % 30;
-    ultimo = tempo;
+    if (reproduzindo) {
+      tempoVisual += dt;
+      const atual = FASES[Math.min(FASES.length - 1, Math.floor(cursor / 1000))];
+      cursor = (cursor + (dt * 1000) / atual.duracao) % TOTAL;
+    }
+    const novaFase = Math.min(FASES.length - 1, Math.floor(cursor / 1000));
+    const progresso = (cursor - novaFase * 1000) / 1000;
+    const dados = FASES[novaFase];
+    if (fase !== novaFase) {
+      decodificar = fase < 0 || reduzido ? 1 : 0;
+      fase = novaFase;
+      romano.textContent = dados.romano;
+      descricao.textContent = dados.descricao;
+      anuncio.textContent = dados.romano + " · " + dados.nome;
+      titulo.textContent = dados.nome;
+    }
+    if (decodificar < 1) {
+      decodificar = limitar(decodificar + dt / .35);
+      const limite = Math.ceil(decodificar * dados.nome.length);
+      titulo.textContent = [...dados.nome].map((letra, i) =>
+        i < limite || letra === " " ? letra : CIFRA[(Math.floor(decodificar * 21) + i * 7) % CIFRA.length]
+      ).join("");
+    }
+    if (anterior === cursor && larguraAnterior === canvas.clientWidth && alturaAnterior === canvas.clientHeight) return;
+    anterior = cursor;
     larguraAnterior = canvas.clientWidth;
     alturaAnterior = canvas.clientHeight;
-    const estreito = larguraAnterior < 710;
-    const centro = estreito ? [.73, .30] : [.745, .46];
-    if (tempo < 10) lancamento(motor, tempo, centro);
-    else if (tempo < 16) orbitaTerrestre(motor, tempo, centro);
-    else if (tempo < 23) travessia(motor, tempo, centro);
-    else viaLactea(motor, tempo, centro);
-    motor.finalizar();
-
-    const indice = ETAPAS.findLastIndex(([inicio]) => tempo >= inicio);
-    const [inicio, rotulo] = ETAPAS[indice];
-    const fim = ETAPAS[indice + 1]?.[0] ?? 30;
-    if (indice === 2 || indice >= 3) {
-      const opacidade = Math.max(indice >= 3 ? 1 - (tempo - inicio) / .32 : 0, 1 - (fim - tempo) / .40, 0);
-      if (opacidade > 0) {
-        motor.ctx.fillStyle = `rgba(2, 3, 7, ${opacidade})`;
-        motor.ctx.fillRect(0, 0, motor.largura, motor.altura);
-      }
-    }
-    if (etapa.textContent !== rotulo) etapa.textContent = rotulo;
-    relogio.textContent = "T+" + String(Math.floor(tempo)).padStart(2, "0") + " s";
-    progresso.style.width = tempo / 30 * 100 + "%";
+    const [valor, legenda] = marcarTempo(fase, progresso);
+    numero.textContent = valor;
+    unidade.textContent = legenda;
+    barra.value = String(Math.round(cursor));
+    barra.style.setProperty("--progresso", cursor / TOTAL * 100 + "%");
+    barra.setAttribute("aria-valuetext", dados.nome + " · " + (fase === 3 ? legenda : valor + " " + legenda));
+    desenharCena(motor, fase, progresso, tempoVisual + fase * 2.5 + progresso * 3);
   });
 }

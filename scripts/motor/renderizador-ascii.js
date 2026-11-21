@@ -522,7 +522,7 @@ export class RenderizadorAscii {
     }
     if (this.altaFrequencia) {
       this.ctx.putImageData(this.quadroAscii, 0, 0);
-    } else if (this.temBrilho) {
+    } else if (this.temBrilho) {   
       this.ctx.save();
       this.ctx.globalCompositeOperation = "lighter";
       this.ctx.globalAlpha = .55;

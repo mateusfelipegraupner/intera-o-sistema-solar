@@ -33,10 +33,10 @@
         <p class="sv-loader__tag"><i class="sinal" aria-hidden="true"></i> Semana do DS · Astronomia</p>
         <h1 id="titulo">
           <img class="abertura__marca" src="./estilos/marca-sistema-solar.jpg" width="1792" height="2400" alt="Sistema Solar" fetchpriority="high">
-          <span>em arte de caractere</span>
+          <span>em arte de caracteres</span>
         </h1>
-        <p class="abertura__descricao">Uma viagem interativa pelo nosso universo construída inteiramente com texto, matemática e código. Explore planetas, luas e descubra o destino do nosso sistema estelar.</p>
-        <a class="sv-btn-back-hangar botao-principal" href="#explorador">Vamos explorar <span aria-hidden="true">↓</span></a>
+        <p class="abertura__descricao">Uma viagem interativa pelo nosso sistema Solar construída inteiramente com letras,números e símbolos de texto. Explore planetas, luas e descubra o destino do nosso sistema Solar.</p>
+        <a class="sv-btn-back-hangar botao-principal" href="#explorador">Vamos explorar <span aria-hidden="true"></span></a>
       </div>
       <div class="abertura__rodape largura">
         <div class="abertura__etapa">
@@ -50,7 +50,7 @@
 
     <section id="explorador" class="secao largura" aria-labelledby="titulo-explorador">
       <header class="secao__cabecalho">
-        <p class="sv-loader__tag">01 // Telemetria &amp; navegação espacial</p>
+        <p class="sv-loader__tag">01 Telemetria &amp; navegação espacial</p>
         <h2 id="titulo-explorador">Explore o Sistema Solar<br> em 3D ASCII</h2>
       </header>
       <div class="sv-eng-card painel">
@@ -81,7 +81,7 @@
           </label>
           <label class="opcao"><input id="mostrar-orbitas" type="checkbox" checked> Órbitas</label>
           <label class="opcao"><input id="mostrar-rotulos" type="checkbox" checked> Rótulos</label>
-          <a class="botao-discreto atalho-vitrine" href="#vitrine">Vitrine de astros ↘</a>
+          <a class="botao-discreto atalho-vitrine" href="#vitrine">Catálogo dos astros ↘</a>
           <button class="botao-discreto voo-livre" type="button" id="voo-livre" aria-pressed="false">Voo livre</button>
         </div>
       </div>
@@ -90,14 +90,14 @@
 
     <section id="vitrine" class="secao largura" aria-labelledby="titulo-vitrine">
       <header class="secao__cabecalho">
-        <h2 id="titulo-vitrine">Vitrine de astros</h2>
+        <h2 id="titulo-vitrine">Catálogo dos astros</h2>
       </header>
       <div data-vitrine-aberta></div>
     </section>
 
     <section id="futuro" class="secao largura" aria-labelledby="titulo-futuro">
       <header class="secao__cabecalho">
-        <p class="sv-loader__tag">02 // Evolução estelar · Passado, presente e futuro</p>
+        <p class="sv-loader__tag">02 Evolução do nosso Sistema Solar · Passado, presente e futuro</p>
         <h2 id="titulo-futuro">O que será de nós?</h2>
       </header>
       <div class="sv-eng-card painel">
@@ -173,5 +173,92 @@
       <div class="somente-leitura" data-ficha="anuncio" aria-live="polite" aria-atomic="true"></div>
     </div>
   </template>
+<style>
+  /* Painéis quando estão em tela cheia */
+  .painel:fullscreen {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 12px;
+    background: #04060c;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .painel:fullscreen .explorador__palco,
+  .painel:fullscreen .tempo__palco {
+    flex: 1 0 250px;
+    height: auto;
+    min-height: 250px;
+  }
+
+  .painel:fullscreen .selecao,
+  .painel:fullscreen .controles,
+  .painel:fullscreen .tempo__controles {
+    flex-shrink: 0;
+  }
+
+  .botao-tela-cheia {
+    align-self: flex-end;
+    margin: 6px;
+  }
+</style>
+
+<script>
+  function adicionarBotaoTelaCheia(seletorSecao) {
+    const secao = document.querySelector(seletorSecao);
+    const painel = secao && secao.querySelector(".painel");
+    if (!painel) return;
+
+    const botao = document.createElement("button");
+    botao.type = "button";
+    botao.className = "botao-discreto botao-tela-cheia";
+    botao.textContent = "⛶ Tela cheia";
+
+    // Coloca o botão antes dos outros controles.
+    painel.insertBefore(botao, painel.firstChild);
+
+    // A janela de inspeção precisa acompanhar o painel
+    // para aparecer enquanto o explorador está em tela cheia.
+    const inspetor = seletorSecao === "#explorador"
+      ? document.querySelector("#inspetor")
+      : null;
+    const lugarOriginal = inspetor ? document.createComment("lugar do inspetor") : null;
+
+    if (inspetor) {
+      inspetor.parentNode.insertBefore(lugarOriginal, inspetor);
+    }
+
+    botao.addEventListener("click", async () => {
+      try {
+        if (document.fullscreenElement === painel) {
+          await document.exitFullscreen();
+        } else {
+          if (inspetor) painel.appendChild(inspetor);
+          await painel.requestFullscreen();
+        }
+      } catch (erro) {
+        if (inspetor && lugarOriginal.parentNode) {
+          lugarOriginal.parentNode.insertBefore(inspetor, lugarOriginal.nextSibling);
+        }
+        alert("Não foi possível abrir a tela cheia neste navegador.");
+      }
+    });
+
+    document.addEventListener("fullscreenchange", () => {
+      const aberto = document.fullscreenElement === painel;
+      botao.textContent = aberto ? "✕ Sair da tela cheia" : "⛶ Tela cheia";
+
+      if (!aberto && inspetor && lugarOriginal.parentNode) {
+        lugarOriginal.parentNode.insertBefore(inspetor, lugarOriginal.nextSibling);
+      }
+    });
+  }
+
+  adicionarBotaoTelaCheia("#explorador");
+  adicionarBotaoTelaCheia("#futuro");
+</script>
 </body>
 </html>
